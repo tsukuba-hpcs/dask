@@ -30,6 +30,7 @@ import numpy as np
 from fsspec import get_mapper
 from tlz import accumulate, concat, first, frequencies, groupby, partition
 from tlz.curried import pluck
+import fsspec
 
 from dask import compute, config, core, threaded
 from dask.array import chunk
@@ -5552,7 +5553,7 @@ def to_npy_stack(dirname, x, axis=0):
     compute_as_if_collection(Array, graph, list(dsk))
 
 
-def from_npy_stack(dirname, mmap_mode="r"):
+def from_npy_stack(dirname, mmap_mode="r", filesystem="file"):
     """Load dask array from stack of npy files
 
     See :func:`dask.array.to_npy_stack` for docstring.
@@ -5563,18 +5564,25 @@ def from_npy_stack(dirname, mmap_mode="r"):
         Directory of .npy files
     mmap_mode: (None or 'r')
         Read data in memory map mode
+    filesystem: string (file)
+        fsspec filesystem protocol
     """
-    with open(os.path.join(dirname, "info"), "rb") as f:
+    fs = fsspec.filesystem(filesystem)
+    with fs.open(os.path.join(dirname, "info"), "rb") as f:
         info = pickle.load(f)
 
     dtype = info["dtype"]
     chunks = info["chunks"]
     axis = info["axis"]
 
+    def _load(path):
+        with fs.open(path) as f:
+            return np.load(f, allow_pickle=True)
+
     name = "from-npy-stack-%s" % dirname
     keys = list(product([name], *[range(len(c)) for c in chunks]))
     values = [
-        (np.load, os.path.join(dirname, "%d.npy" % i), mmap_mode)
+        (_load, os.path.join(dirname, "%d.npy" % i))
         for i in range(len(chunks[axis]))
     ]
     dsk = dict(zip(keys, values))
