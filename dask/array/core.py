@@ -5552,13 +5552,13 @@ def to_npy_stack(dirname, x, axis=0):
     graph = HighLevelGraph.from_collections(name, dsk, dependencies=[xx])
     compute_as_if_collection(Array, graph, list(dsk))
 
-def _load(path, filesystem):
+def _load(path, filesystem, block_size):
     fs = fsspec.filesystem(filesystem)
-    with fs.open(path) as f:
+    with fs.open(path, block_size=block_size) as f:
         data = np.load(f, allow_pickle=True)
         return data
 
-def from_npy_stack(dirname, mmap_mode="r", cfs="file", wfs="file"):
+def from_npy_stack(dirname, mmap_mode="r", cfs="file", wfs="file", block_size=None):
     """Load dask array from stack of npy files
 
     See :func:`dask.array.to_npy_stack` for docstring.
@@ -5585,7 +5585,7 @@ def from_npy_stack(dirname, mmap_mode="r", cfs="file", wfs="file"):
     name = "from-npy-stack-%s" % dirname
     keys = list(product([name], *[range(len(c)) for c in chunks]))
     values = [
-        (_load, os.path.join(dirname, "%d.npy" % i), wfs)
+        (_load, os.path.join(dirname, "%d.npy" % i), wfs, block_size)
         for i in range(len(chunks[axis]))
     ]
     dsk = dict(zip(keys, values))
