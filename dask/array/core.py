@@ -5552,13 +5552,18 @@ def to_npy_stack(dirname, x, axis=0):
     graph = HighLevelGraph.from_collections(name, dsk, dependencies=[xx])
     compute_as_if_collection(Array, graph, list(dsk))
 
-def _load(path, filesystem, block_size):
+def _load_pickle(path, filesystem):
     fs = fsspec.filesystem(filesystem)
-    with fs.open(path, block_size=block_size) as f:
+    with fs.open(path, "rb") as f:
+        return pickle.load(f)
+
+def _load_npy(path, filesystem):
+    fs = fsspec.filesystem(filesystem)
+    with fs.open(path) as f:
         data = np.load(f, allow_pickle=True)
         return data
 
-def from_npy_stack(dirname, mmap_mode="r", cfs="file", wfs="file", block_size=None):
+def from_npy_stack(dirname, mmap_mode="r", fs="file"):
     """Load dask array from stack of npy files
 
     See :func:`dask.array.to_npy_stack` for docstring.
@@ -5569,14 +5574,10 @@ def from_npy_stack(dirname, mmap_mode="r", cfs="file", wfs="file", block_size=No
         Directory of .npy files
     mmap_mode: (None or 'r')
         Read data in memory map mode
-    cfs: string (file)
-        fsspec filesystem protocol for Client
-    wfs: string (file)
+    fs: string (file)
         fsspec filesystem protocol for Worker
     """
-    cfs = fsspec.filesystem(cfs)
-    with cfs.open(os.path.join(dirname, "info"), "rb") as f:
-        info = pickle.load(f)
+    info = delayed(_load_pickle)(os.path.join(dirname, "info"), fs).compute()
 
     dtype = info["dtype"]
     chunks = info["chunks"]
@@ -5585,7 +5586,7 @@ def from_npy_stack(dirname, mmap_mode="r", cfs="file", wfs="file", block_size=No
     name = "from-npy-stack-%s" % dirname
     keys = list(product([name], *[range(len(c)) for c in chunks]))
     values = [
-        (_load, os.path.join(dirname, "%d.npy" % i), wfs, block_size)
+        (_load_npy, os.path.join(dirname, "%d.npy" % i), fs)
         for i in range(len(chunks[axis]))
     ]
     dsk = dict(zip(keys, values))
